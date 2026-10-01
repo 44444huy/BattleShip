@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "protocol.h"
@@ -84,25 +85,103 @@ int main(int argc, char *argv[])
     printf("  REGISTER <username> <password>\n");
     printf("  LOGIN <username> <password>\n");
     printf("  LOGOUT\n");
+    printf("  READY, UNREADY, LIST_READY\n");
+    printf("  CHALLENGE <username>\n");
+    printf("  LIST_CHALLENGES\n");
+    printf("  ACCEPT <username>, DECLINE <username>\n");
+    printf("  PLACE <ship 1-5> <A1-J10> <H|V>\n");
+    printf("  SHOW_BOARD\n");
+    printf("  SHOOT <A1-J10>\n");
+    printf("  SHOW_OPPONENT\n");
     printf("  HELLO, PING, QUIT\n");
 
     char message[MESSAGE_SIZE];
+    int input_open = 1;
+    int quit_sent = 0;
+    int show_prompt = 1;
+
+    setvbuf(stdin, NULL, _IONBF, 0);
 
     while (1)
     {
-        printf("> ");
-        fflush(stdout);
+        if (show_prompt && input_open && !quit_sent)
+        {
+            printf("> ");
+            fflush(stdout);
+            show_prompt = 0;
+        }
+
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(server_fd, &read_fds);
+
+        if (input_open && !quit_sent)
+        {
+            FD_SET(STDIN_FILENO, &read_fds);
+        }
+
+        int ready = select(server_fd + 1, &read_fds,
+                           NULL, NULL, NULL);
+
+        if (ready == -1)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+
+            perror("select");
+            break;
+        }
+
+        if (FD_ISSET(server_fd, &read_fds))
+        {
+            receive_result = receive_line(server_fd,
+                                          response, sizeof(response));
+
+            if (receive_result == 1)
+            {
+                printf("\nServer: %s\n", response);
+
+                if (strcmp(response, "BYE") == 0)
+                {
+                    break;
+                }
+
+                show_prompt = 1;
+            }
+            else if (receive_result == 0)
+            {
+                printf("\nServer closed the connection.\n");
+                break;
+            }
+            else
+            {
+                fprintf(stderr,
+                        "\nCould not receive a complete response.\n");
+                break;
+            }
+        }
+
+        if (!input_open || quit_sent ||
+            !FD_ISSET(STDIN_FILENO, &read_fds))
+        {
+            continue;
+        }
 
         if (fgets(message, sizeof(message), stdin) == NULL)
         {
-            printf("\nInput ended.\n");
-            break;
+            input_open = 0;
+            shutdown(server_fd, SHUT_WR);
+            printf("\nInput ended. Waiting for server...\n");
+            continue;
         }
 
         message[strcspn(message, "\r\n")] = '\0';
 
         if (message[0] == '\0')
         {
+            show_prompt = 1;
             continue;
         }
 
@@ -112,28 +191,12 @@ int main(int argc, char *argv[])
             break;
         }
 
-        receive_result = receive_line(server_fd,
-                                      response, sizeof(response));
-
-        if (receive_result == 1)
-        {
-            printf("Server replied: %s\n", response);
-        }
-        else if (receive_result == 0)
-        {
-            printf("Server closed the connection.\n");
-            break;
-        }
-        else
-        {
-            fprintf(stderr, "Could not receive a complete response.\n");
-            break;
-        }
-
         if (strcmp(message, "QUIT") == 0)
         {
-            break;
+            quit_sent = 1;
         }
+
+        show_prompt = 1;
     }
 
     close(server_fd);

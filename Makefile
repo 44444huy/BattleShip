@@ -12,8 +12,8 @@ all: $(TARGET) $(SERVER_TARGET) $(CLIENT_TARGET)
 $(TARGET): $(SOURCES) game.h
 	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
 
-$(SERVER_TARGET): server.c protocol.c protocol.h account.c account.h
-	$(CC) $(CFLAGS) server.c protocol.c account.c -o $(SERVER_TARGET)
+$(SERVER_TARGET): server.c protocol.c protocol.h account.c account.h game.c game.h
+	$(CC) $(CFLAGS) server.c protocol.c account.c game.c -o $(SERVER_TARGET)
 
 $(CLIENT_TARGET): client.c protocol.c protocol.h
 	$(CC) $(CFLAGS) client.c protocol.c -o $(CLIENT_TARGET)
