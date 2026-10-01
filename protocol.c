@@ -10,7 +10,7 @@ int send_all(int fd, const char *data, size_t length)
     while (total_sent < length)
     {
         ssize_t sent = send(fd, data + total_sent,
-                            length - total_sent, 0);
+                            length - total_sent, MSG_NOSIGNAL);
 
         if (sent < 0)
         {
@@ -93,8 +93,7 @@ int receive_line(int fd, char *buffer, size_t buffer_size)
             do
             {
                 received = recv(fd, &character, 1, 0);
-            }
-            while (received > 0 && character != '\n');
+            } while (received > 0 && character != '\n');
 
             buffer[0] = '\0';
             return RECEIVE_LINE_TOO_LONG;

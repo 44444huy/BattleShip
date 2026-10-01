@@ -65,26 +65,26 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("Connected to the server. Waiting for another player...\n");
+    printf("Connected to the server.\n");
 
     char response[MESSAGE_SIZE];
+    int receive_result = receive_line(server_fd,
+                                      response, sizeof(response));
 
-    for (int i = 0; i < 2; i++)
+    if (receive_result != 1)
     {
-        int receive_result = receive_line(server_fd,
-                                          response, sizeof(response));
-
-        if (receive_result != 1)
-        {
-            fprintf(stderr, "Connection closed during setup.\n");
-            close(server_fd);
-            return 1;
-        }
-
-        printf("Server: %s\n", response);
+        fprintf(stderr, "Connection closed during setup.\n");
+        close(server_fd);
+        return 1;
     }
 
-    printf("Commands: HELLO, PING, QUIT\n");
+    printf("Server: %s\n", response);
+
+    printf("Commands:\n");
+    printf("  REGISTER <username> <password>\n");
+    printf("  LOGIN <username> <password>\n");
+    printf("  LOGOUT\n");
+    printf("  HELLO, PING, QUIT\n");
 
     char message[MESSAGE_SIZE];
 
@@ -112,8 +112,8 @@ int main(int argc, char *argv[])
             break;
         }
 
-        int receive_result = receive_line(server_fd,
-                                          response, sizeof(response));
+        receive_result = receive_line(server_fd,
+                                      response, sizeof(response));
 
         if (receive_result == 1)
         {
