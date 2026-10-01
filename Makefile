@@ -6,14 +6,16 @@ ACCOUNT_TEST_TARGET = test_account
 SERVER_TARGET = server
 CLIENT_TARGET = client
 SOURCES = main.c game.c
+SERVER_SOURCES = server.c server_state.c server_game.c \
+	server_commands.c server_connection.c protocol.c account.c game.c
 
 all: $(TARGET) $(SERVER_TARGET) $(CLIENT_TARGET)
 
 $(TARGET): $(SOURCES) game.h
 	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
 
-$(SERVER_TARGET): server.c protocol.c protocol.h account.c account.h game.c game.h
-	$(CC) $(CFLAGS) server.c protocol.c account.c game.c -o $(SERVER_TARGET)
+$(SERVER_TARGET): $(SERVER_SOURCES) server.h protocol.h account.h game.h
+	$(CC) $(CFLAGS) $(SERVER_SOURCES) -o $(SERVER_TARGET)
 
 $(CLIENT_TARGET): client.c protocol.c protocol.h
 	$(CC) $(CFLAGS) client.c protocol.c -o $(CLIENT_TARGET)
