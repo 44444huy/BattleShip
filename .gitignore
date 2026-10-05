@@ -1,0 +1,15 @@
+# Compiled programs
+/battleship
+/server
+/client
+/test_game
+/test_account
+
+# Runtime and test data
+/accounts.txt
+/test_accounts.tmp
+
+# Logs and crash output
+*.log
+core
+core.*

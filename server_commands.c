@@ -51,6 +51,58 @@ static int send_ready_players(
                      "READY_LIST_END");
 }
 
+static int send_online_players(
+    const struct Client clients[MAX_CLIENTS], int client_index)
+{
+    int online_count = 0;
+    char response[MESSAGE_SIZE];
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i].fd != -1 && clients[i].logged_in)
+        {
+            online_count++;
+        }
+    }
+
+    snprintf(response, sizeof(response),
+             "ONLINE_LIST %d", online_count);
+
+    if (send_line(clients[client_index].fd, response) == -1)
+    {
+        return -1;
+    }
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (clients[i].fd != -1 && clients[i].logged_in)
+        {
+            const char *status = "ONLINE";
+
+            if (clients[i].game_index != -1)
+            {
+                status = "IN_GAME";
+            }
+            else if (clients[i].ready)
+            {
+                status = "READY";
+            }
+
+            snprintf(response, sizeof(response),
+                     "ONLINE_PLAYER %s %s",
+                     clients[i].username, status);
+
+            if (send_line(clients[client_index].fd, response) == -1)
+            {
+                return -1;
+            }
+        }
+    }
+
+    return send_line(clients[client_index].fd,
+                     "ONLINE_LIST_END");
+}
+
 static int send_challenge_list(
     const struct Client clients[MAX_CLIENTS], int client_index)
 {
@@ -91,6 +143,227 @@ static int send_challenge_list(
 
     return send_line(clients[client_index].fd,
                      "CHALLENGE_LIST_END");
+}
+
+static int handle_rematch_request(
+    struct Client clients[MAX_CLIENTS], int client_index,
+    char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index != -1)
+    {
+        strcpy(response, "ERROR Already in a match");
+        return 0;
+    }
+
+    int opponent_index = client->last_opponent_index;
+
+    if (opponent_index < 0 || opponent_index >= MAX_CLIENTS ||
+        clients[opponent_index].fd == -1 ||
+        !clients[opponent_index].logged_in ||
+        clients[opponent_index].last_opponent_index != client_index)
+    {
+        client->last_opponent_index = -1;
+        strcpy(response, "ERROR No previous opponent available");
+        return 0;
+    }
+
+    struct Client *opponent = &clients[opponent_index];
+
+    if (opponent->game_index != -1)
+    {
+        strcpy(response, "ERROR Previous opponent is in a match");
+    }
+    else if (client->rematch_from == opponent_index)
+    {
+        strcpy(response,
+               "ERROR Opponent requested a rematch; use ACCEPT_REMATCH");
+    }
+    else if (opponent->rematch_from == client_index)
+    {
+        strcpy(response, "ERROR Rematch request already sent");
+    }
+    else if (client->rematch_from != -1 ||
+             opponent->rematch_from != -1)
+    {
+        strcpy(response, "ERROR Rematch request is already pending");
+    }
+    else
+    {
+        opponent->rematch_from = client_index;
+        snprintf(response, MESSAGE_SIZE,
+                 "REMATCH_REQUEST %s", client->username);
+
+        if (send_line(opponent->fd, response) == -1)
+        {
+            opponent->rematch_from = -1;
+            strcpy(response, "ERROR Could not contact opponent");
+        }
+        else
+        {
+            snprintf(response, MESSAGE_SIZE,
+                     "REMATCH_SENT %s", opponent->username);
+        }
+    }
+
+    return 0;
+}
+
+static int handle_accept_rematch(
+    struct Client clients[MAX_CLIENTS],
+    struct GameSession games[MAX_GAMES], int client_index,
+    char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index != -1)
+    {
+        strcpy(response, "ERROR Already in a match");
+        return 0;
+    }
+
+    int challenger_index = client->rematch_from;
+
+    if (challenger_index < 0 || challenger_index >= MAX_CLIENTS ||
+        clients[challenger_index].fd == -1 ||
+        !clients[challenger_index].logged_in)
+    {
+        client->rematch_from = -1;
+        strcpy(response, "ERROR No rematch request");
+        return 0;
+    }
+
+    struct Client *challenger = &clients[challenger_index];
+
+    if (challenger->game_index != -1 ||
+        client->last_opponent_index != challenger_index ||
+        challenger->last_opponent_index != client_index)
+    {
+        client->rematch_from = -1;
+        strcpy(response, "ERROR Rematch is no longer available");
+        return 0;
+    }
+
+    if (find_free_game(games) == -1)
+    {
+        strcpy(response, "ERROR Server game capacity reached");
+        return 0;
+    }
+
+    cancel_all_challenges(clients, client_index);
+    cancel_all_challenges(clients, challenger_index);
+    client->rematch_from = -1;
+    challenger->rematch_from = -1;
+    client->last_opponent_index = -1;
+    challenger->last_opponent_index = -1;
+    client->opponent_index = challenger_index;
+    challenger->opponent_index = client_index;
+    client->ready = 0;
+    challenger->ready = 0;
+
+    int game_index = create_game_session(
+        games, clients, challenger_index, client_index);
+
+    if (game_index == -1)
+    {
+        client->opponent_index = -1;
+        challenger->opponent_index = -1;
+        strcpy(response, "ERROR Could not start rematch");
+        return 0;
+    }
+
+    char notification[MESSAGE_SIZE];
+    snprintf(notification, sizeof(notification),
+             "REMATCH_ACCEPTED %s", client->username);
+
+    if (send_line(challenger->fd, notification) == -1)
+    {
+        leave_match(clients, games, challenger_index);
+        strcpy(response, "ERROR Could not contact opponent");
+        return 0;
+    }
+
+    snprintf(notification, sizeof(notification),
+             "MATCH_START %s 1", client->username);
+
+    if (send_line(challenger->fd, notification) == -1 ||
+        send_next_ship(challenger, &games[game_index]) == -1)
+    {
+        leave_match(clients, games, challenger_index);
+        strcpy(response, "ERROR Could not start rematch");
+        return 0;
+    }
+
+    snprintf(notification, sizeof(notification),
+             "ACCEPT_REMATCH_OK %s", challenger->username);
+
+    if (send_line(client->fd, notification) == -1)
+    {
+        leave_match(clients, games, client_index);
+        return -1;
+    }
+
+    snprintf(notification, sizeof(notification),
+             "MATCH_START %s 2", challenger->username);
+
+    if (send_line(client->fd, notification) == -1 ||
+        send_next_ship(client, &games[game_index]) == -1)
+    {
+        leave_match(clients, games, client_index);
+        return -1;
+    }
+
+    return 1;
+}
+
+static int handle_decline_rematch(
+    struct Client clients[MAX_CLIENTS], int client_index,
+    char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    int challenger_index = client->rematch_from;
+
+    if (challenger_index < 0 || challenger_index >= MAX_CLIENTS ||
+        clients[challenger_index].fd == -1 ||
+        !clients[challenger_index].logged_in)
+    {
+        client->rematch_from = -1;
+        strcpy(response, "ERROR No rematch request");
+        return 0;
+    }
+
+    struct Client *challenger = &clients[challenger_index];
+    client->rematch_from = -1;
+    client->last_opponent_index = -1;
+    challenger->last_opponent_index = -1;
+
+    char notification[MESSAGE_SIZE];
+    snprintf(notification, sizeof(notification),
+             "REMATCH_DECLINED %s", client->username);
+    send_line(challenger->fd, notification);
+    snprintf(response, MESSAGE_SIZE,
+             "DECLINE_REMATCH_OK %s", challenger->username);
+    return 0;
 }
 
 int process_message(struct Client clients[MAX_CLIENTS],
@@ -196,6 +469,8 @@ int process_message(struct Client clients[MAX_CLIENTS],
             client->opponent_index = -1;
             client->game_index = -1;
             client->game_player_index = -1;
+            client->last_opponent_index = -1;
+            client->rematch_from = -1;
             strcpy(client->username, username);
 
             for (int i = 0; i < MAX_CLIENTS; i++)
@@ -216,6 +491,7 @@ int process_message(struct Client clients[MAX_CLIENTS],
         else
         {
             cancel_all_challenges(clients, client_index);
+            cancel_rematch_requests(clients, client_index);
             leave_match(clients, games, client_index);
             client->logged_in = 0;
             client->ready = 0;
@@ -265,6 +541,23 @@ int process_message(struct Client clients[MAX_CLIENTS],
         else
         {
             if (send_ready_players(clients, client_index) == -1)
+            {
+                perror("send");
+                return 1;
+            }
+
+            return 0;
+        }
+    }
+    else if (strcmp(message, "LIST_ONLINE") == 0)
+    {
+        if (!client->logged_in)
+        {
+            strcpy(response, "ERROR Login required");
+        }
+        else
+        {
+            if (send_online_players(clients, client_index) == -1)
             {
                 perror("send");
                 return 1;
@@ -421,6 +714,10 @@ int process_message(struct Client clients[MAX_CLIENTS],
                     }
                     else
                     {
+                        cancel_rematch_requests(clients,
+                                                client_index);
+                        cancel_rematch_requests(clients,
+                                                challenger_index);
                         cancel_all_challenges(clients, client_index);
                         cancel_all_challenges(clients, challenger_index);
                         client->opponent_index = challenger_index;
@@ -519,6 +816,29 @@ int process_message(struct Client clients[MAX_CLIENTS],
             }
         }
     }
+    else if (strcmp(message, "REMATCH") == 0)
+    {
+        handle_rematch_request(clients, client_index, response);
+    }
+    else if (strcmp(message, "ACCEPT_REMATCH") == 0)
+    {
+        int rematch_result = handle_accept_rematch(
+            clients, games, client_index, response);
+
+        if (rematch_result < 0)
+        {
+            return 1;
+        }
+
+        if (rematch_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "DECLINE_REMATCH") == 0)
+    {
+        handle_decline_rematch(clients, client_index, response);
+    }
     else if (strcmp(command, "PLACE") == 0)
     {
         int place_result = handle_place_command(
@@ -545,6 +865,96 @@ int process_message(struct Client clients[MAX_CLIENTS],
         }
 
         if (shoot_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "RESIGN") == 0)
+    {
+        int resign_result = handle_resign_command(
+            clients, games, client_index, response);
+
+        if (resign_result < 0)
+        {
+            return 1;
+        }
+
+        if (resign_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "DRAW") == 0)
+    {
+        int draw_result = handle_draw_command(
+            clients, games, client_index, response);
+
+        if (draw_result < 0)
+        {
+            return 1;
+        }
+
+        if (draw_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "ACCEPT_DRAW") == 0)
+    {
+        int draw_result = handle_accept_draw_command(
+            clients, games, client_index, response);
+
+        if (draw_result < 0)
+        {
+            return 1;
+        }
+
+        if (draw_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "DECLINE_DRAW") == 0)
+    {
+        int draw_result = handle_decline_draw_command(
+            clients, games, client_index, response);
+
+        if (draw_result < 0)
+        {
+            return 1;
+        }
+
+        if (draw_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "PAUSE") == 0)
+    {
+        int pause_result = handle_pause_command(
+            clients, games, client_index, response);
+
+        if (pause_result < 0)
+        {
+            return 1;
+        }
+
+        if (pause_result > 0)
+        {
+            return 0;
+        }
+    }
+    else if (strcmp(message, "RESUME") == 0)
+    {
+        int resume_result = handle_resume_command(
+            clients, games, client_index, response);
+
+        if (resume_result < 0)
+        {
+            return 1;
+        }
+
+        if (resume_result > 0)
         {
             return 0;
         }

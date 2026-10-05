@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battleship Server Data Model</title>
+<style>
+  html, body { margin: 0; background: #f4f7fb; }
+  body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+  svg { display: block; width: 1700px; height: 1200px; background: #f4f7fb; }
+  .title { font-size: 38px; font-weight: 750; fill: #13213c; letter-spacing: 0; }
+  .subtitle { font-size: 17px; fill: #63708a; letter-spacing: 0; }
+  .zone-title { font-size: 14px; font-weight: 700; letter-spacing: 1.4px; }
+  .entity-title { font-size: 21px; font-weight: 750; fill: #ffffff; letter-spacing: 0; }
+  .entity-subtitle { font-size: 13px; fill: rgba(255,255,255,.82); letter-spacing: 0; }
+  .field { font-family: "Cascadia Code", Consolas, monospace; font-size: 15px; fill: #26334c; }
+  .field-muted { fill: #7a8598; }
+  .relation { font-size: 14px; font-weight: 650; fill: #43516b; letter-spacing: 0; }
+  .note-title { font-size: 18px; font-weight: 750; fill: #17233b; letter-spacing: 0; }
+  .note-code { font-family: "Cascadia Code", Consolas, monospace; font-size: 15px; fill: #26334c; }
+  .legend { font-size: 14px; fill: #526078; letter-spacing: 0; }
+  .dark .note-title { fill: #ffffff; }
+  .dark .note-code { fill: #c9d7f2; }
+  .dark .note-code.accent { fill: #8ce0c0; }
+  .dark .legend { fill: #9dacbf; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1700 1200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#25334d" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#65728a"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#3478d4"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#15916c"/>
+    </marker>
+    <marker id="diamond" markerWidth="13" markerHeight="13" refX="3" refY="6" orient="auto">
+      <path d="M0,6 L6,1 L12,6 L6,11 Z" fill="#65728a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1700" height="1200" fill="#f4f7fb"/>
+  <text x="72" y="64" class="title">Battleship Server Data Model</text>
+  <text x="72" y="96" class="subtitle">How persistent accounts, connected clients, and active games reference each other</text>
+
+  <rect x="72" y="126" width="760" height="238" rx="8" fill="#eaf2ff" stroke="#c8dcfb"/>
+  <text x="96" y="153" class="zone-title" fill="#3478d4">PERSISTENT DATA · accounts.txt</text>
+
+  <rect x="868" y="126" width="760" height="238" rx="8" fill="#e9f8f3" stroke="#bce7d8"/>
+  <text x="892" y="153" class="zone-title" fill="#148361">RUNTIME DATA · MEMORY ONLY</text>
+  <text x="892" y="184" class="subtitle">Connections, invitations, and games disappear when the server stops.</text>
+
+  <!-- AccountStore -->
+  <g filter="url(#shadow)">
+    <rect x="108" y="184" width="290" height="142" rx="7" fill="#ffffff" stroke="#b9c9df"/>
+    <path d="M115 184 H391 Q398 184 398 191 V236 H108 V191 Q108 184 115 184Z" fill="#3478d4"/>
+    <text x="128" y="214" class="entity-title">AccountStore</text>
+    <text x="128" y="231" class="entity-subtitle">loaded once at server startup</text>
+    <text x="128" y="268" class="field">accounts[MAX_ACCOUNTS]</text>
+    <text x="128" y="298" class="field">count</text>
+  </g>
+
+  <!-- Account -->
+  <g filter="url(#shadow)">
+    <rect x="508" y="174" width="286" height="162" rx="7" fill="#ffffff" stroke="#b9c9df"/>
+    <path d="M515 174 H787 Q794 174 794 181 V226 H508 V181 Q508 174 515 174Z" fill="#3478d4"/>
+    <text x="528" y="204" class="entity-title">Account</text>
+    <text x="528" y="221" class="entity-subtitle">one line in accounts.txt</text>
+    <text x="528" y="258" class="field">username[32]</text>
+    <text x="528" y="288" class="field">password[64]</text>
+    <text x="528" y="316" class="field field-muted">persistent identity</text>
+  </g>
+
+  <!-- Client compact card in runtime zone -->
+  <g filter="url(#shadow)">
+    <rect x="1000" y="208" width="478" height="126" rx="7" fill="#ffffff" stroke="#addacb"/>
+    <path d="M1007 208 H1471 Q1478 208 1478 215 V254 H1000 V215 Q1000 208 1007 208Z" fill="#15916c"/>
+    <text x="1020" y="238" class="entity-title">Client pool</text>
+    <text x="1288" y="238" class="entity-subtitle">clients[MAX_CLIENTS]</text>
+    <text x="1020" y="284" class="field">one slot per TCP connection</text>
+    <text x="1020" y="313" class="field field-muted">fd == -1 means the slot is free</text>
+  </g>
+
+  <!-- contains arrows -->
+  <path d="M398 254 H508" fill="none" stroke="#3478d4" stroke-width="2.5" marker-start="url(#diamond)" marker-end="url(#arrow-blue)"/>
+  <rect x="420" y="227" width="66" height="23" rx="4" fill="#f4f7fb"/>
+  <text x="453" y="244" text-anchor="middle" class="relation">0..100</text>
+
+  <path d="M794 255 C860 255 900 265 1000 271" fill="none" stroke="#76849c" stroke-width="2.2" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+  <rect x="827" y="226" width="135" height="25" rx="4" fill="#f4f7fb"/>
+  <text x="895" y="244" text-anchor="middle" class="relation">LOGIN username</text>
+
+  <!-- Main relationship zone -->
+  <rect x="72" y="394" width="1556" height="496" rx="8" fill="#ffffff" stroke="#d9e0eb"/>
+  <text x="96" y="426" class="zone-title" fill="#68758c">ACTIVE MATCH RELATIONSHIPS</text>
+
+  <!-- Client -->
+  <g filter="url(#shadow)">
+    <rect x="108" y="468" width="390" height="340" rx="7" fill="#ffffff" stroke="#addacb"/>
+    <path d="M115 468 H491 Q498 468 498 475 V526 H108 V475 Q108 468 115 468Z" fill="#15916c"/>
+    <text x="128" y="500" class="entity-title">Client</text>
+    <text x="128" y="518" class="entity-subtitle">clients[client_index]</text>
+    <text x="128" y="558" class="field">fd</text>
+    <text x="128" y="588" class="field">logged_in · ready</text>
+    <text x="128" y="618" class="field">username[32]</text>
+    <line x1="128" y1="639" x2="475" y2="639" stroke="#e1e6ee"/>
+    <text x="128" y="671" class="field">opponent_index</text>
+    <text x="128" y="701" class="field">game_index</text>
+    <text x="128" y="731" class="field">game_player_index</text>
+    <text x="128" y="761" class="field">challenges_from[100]</text>
+    <text x="128" y="790" class="field field-muted">buffer · used · discarding_line</text>
+  </g>
+
+  <!-- GameSession -->
+  <g filter="url(#shadow)">
+    <rect x="656" y="500" width="384" height="248" rx="7" fill="#ffffff" stroke="#d9c89f"/>
+    <path d="M663 500 H1033 Q1040 500 1040 507 V558 H656 V507 Q656 500 663 500Z" fill="#bb7b16"/>
+    <text x="676" y="532" class="entity-title">GameSession</text>
+    <text x="676" y="550" class="entity-subtitle">games[game_index]</text>
+    <text x="676" y="592" class="field">active</text>
+    <text x="676" y="626" class="field">client_indices[0]</text>
+    <text x="676" y="660" class="field">client_indices[1]</text>
+    <line x1="676" y1="681" x2="1017" y2="681" stroke="#e1e6ee"/>
+    <text x="676" y="716" class="field">game</text>
+  </g>
+
+  <!-- Game -->
+  <g filter="url(#shadow)">
+    <rect x="1192" y="468" width="352" height="216" rx="7" fill="#ffffff" stroke="#c9b9dd"/>
+    <path d="M1199 468 H1537 Q1544 468 1544 475 V526 H1192 V475 Q1192 468 1199 468Z" fill="#7852a9"/>
+    <text x="1212" y="500" class="entity-title">Game</text>
+    <text x="1212" y="518" class="entity-subtitle">rules and current state</text>
+    <text x="1212" y="558" class="field">players[2]</text>
+    <text x="1212" y="590" class="field">current_turn</text>
+    <text x="1212" y="622" class="field">game_over</text>
+    <text x="1212" y="654" class="field">winner</text>
+  </g>
+
+  <!-- Player -->
+  <g filter="url(#shadow)">
+    <rect x="1178" y="730" width="380" height="128" rx="7" fill="#ffffff" stroke="#c9b9dd"/>
+    <path d="M1185 730 H1551 Q1558 730 1558 737 V779 H1178 V737 Q1178 730 1185 730Z" fill="#7852a9"/>
+    <text x="1198" y="760" class="entity-title">Player</text>
+    <text x="1380" y="760" class="entity-subtitle">players[0] / players[1]</text>
+    <text x="1198" y="811" class="field">board[10][10]</text>
+    <text x="1390" y="811" class="field">fleet[5]</text>
+    <text x="1198" y="839" class="field field-muted">game state, not network identity</text>
+  </g>
+
+  <!-- bidirectional indexed references -->
+  <path d="M498 592 C552 545 592 542 656 568" fill="none" stroke="#15916c" stroke-width="2.6" marker-end="url(#arrow-green)"/>
+  <rect x="519" y="515" width="119" height="25" rx="4" fill="#ffffff"/>
+  <text x="579" y="533" text-anchor="middle" class="relation">game_index</text>
+
+  <path d="M656 646 C590 696 550 701 498 686" fill="none" stroke="#bb7b16" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <rect x="505" y="704" width="145" height="25" rx="4" fill="#ffffff"/>
+  <text x="577" y="722" text-anchor="middle" class="relation">client_indices[2]</text>
+
+  <path d="M289 808 C286 869 440 874 472 820 C490 790 464 761 430 747" fill="none" stroke="#15916c" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow-green)"/>
+  <rect x="234" y="850" width="248" height="26" rx="4" fill="#ffffff"/>
+  <text x="358" y="868" text-anchor="middle" class="relation">opponent_index · challenges_from[]</text>
+
+  <!-- containment game tree -->
+  <path d="M1040 604 H1192" fill="none" stroke="#65728a" stroke-width="2.5" marker-start="url(#diamond)" marker-end="url(#arrow)"/>
+  <rect x="1080" y="574" width="76" height="24" rx="4" fill="#ffffff"/>
+  <text x="1118" y="592" text-anchor="middle" class="relation">contains</text>
+
+  <path d="M1368 684 V730" fill="none" stroke="#7852a9" stroke-width="2.5" marker-start="url(#diamond)" marker-end="url(#arrow)"/>
+  <rect x="1388" y="692" width="85" height="24" rx="4" fill="#ffffff"/>
+  <text x="1430" y="710" text-anchor="middle" class="relation">exactly 2</text>
+
+  <!-- Example panel -->
+  <g class="dark" filter="url(#shadow)">
+    <rect x="72" y="930" width="978" height="204" rx="8" fill="#17233b"/>
+    <text x="100" y="969" class="note-title" fill="#ffffff">Concrete example: Huy and Lan are playing game 0</text>
+    <text x="100" y="1010" class="note-code" fill="#c9d7f2">clients[7]  = { game_index: 0, game_player_index: 0, opponent_index: 24 }</text>
+    <text x="100" y="1045" class="note-code" fill="#c9d7f2">clients[24] = { game_index: 0, game_player_index: 1, opponent_index: 7 }</text>
+    <text x="100" y="1091" class="note-code accent">games[0].client_indices = { 7, 24 }</text>
+    <text x="100" y="1118" class="legend" fill="#9dacbf">Array position 0/1 means Player 1/2; stored values 7/24 identify slots in clients[].</text>
+  </g>
+
+  <!-- Ship card -->
+  <g filter="url(#shadow)">
+    <rect x="1126" y="930" width="432" height="204" rx="7" fill="#ffffff" stroke="#c9b9dd"/>
+    <path d="M1133 930 H1551 Q1558 930 1558 937 V984 H1126 V937 Q1126 930 1133 930Z" fill="#7852a9"/>
+    <text x="1146" y="962" class="entity-title">Ship</text>
+    <text x="1360" y="962" class="entity-subtitle">5 per Player</text>
+    <text x="1146" y="1019" class="field">name · length · placed</text>
+    <text x="1146" y="1053" class="field">row · column · direction</text>
+    <text x="1146" y="1095" class="field field-muted">The starting cell is the ship's anchor.</text>
+  </g>
+
+  <path d="M1368 858 C1368 890 1342 902 1342 930" fill="none" stroke="#7852a9" stroke-width="2.5" marker-start="url(#diamond)" marker-end="url(#arrow)"/>
+  <rect x="1387" y="878" width="92" height="24" rx="4" fill="#f4f7fb"/>
+  <text x="1433" y="896" text-anchor="middle" class="relation">exactly 5</text>
+</svg>
+</body>
+</html>

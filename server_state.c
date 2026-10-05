@@ -16,6 +16,8 @@ void initialize_clients(struct Client clients[MAX_CLIENTS])
         clients[i].opponent_index = -1;
         clients[i].game_index = -1;
         clients[i].game_player_index = -1;
+        clients[i].last_opponent_index = -1;
+        clients[i].rematch_from = -1;
         clients[i].username[0] = '\0';
 
         for (int j = 0; j < MAX_CLIENTS; j++)
@@ -32,6 +34,9 @@ void initialize_game_sessions(struct GameSession games[MAX_GAMES])
         games[i].active = 0;
         games[i].client_indices[0] = -1;
         games[i].client_indices[1] = -1;
+        games[i].draw_offered_by = -1;
+        games[i].paused = 0;
+        games[i].paused_by = -1;
     }
 }
 
@@ -95,6 +100,51 @@ void cancel_all_challenges(struct Client clients[MAX_CLIENTS],
     }
 }
 
+void cancel_rematch_requests(struct Client clients[MAX_CLIENTS],
+                             int client_index)
+{
+    struct Client *client = &clients[client_index];
+    char notification[MESSAGE_SIZE];
+
+    for (int i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (i == client_index)
+        {
+            continue;
+        }
+
+        int related_request = 0;
+
+        if (clients[i].rematch_from == client_index)
+        {
+            clients[i].rematch_from = -1;
+            related_request = 1;
+        }
+
+        if (client->rematch_from == i)
+        {
+            client->rematch_from = -1;
+            related_request = 1;
+        }
+
+        if (clients[i].last_opponent_index == client_index)
+        {
+            clients[i].last_opponent_index = -1;
+        }
+
+        if (related_request &&
+            clients[i].fd != -1 && clients[i].logged_in)
+        {
+            snprintf(notification, sizeof(notification),
+                     "REMATCH_CANCELLED %s", client->username);
+            send_line(clients[i].fd, notification);
+        }
+    }
+
+    client->last_opponent_index = -1;
+    client->rematch_from = -1;
+}
+
 void leave_match(struct Client clients[MAX_CLIENTS],
                  struct GameSession games[MAX_GAMES],
                  int client_index)
@@ -108,12 +158,16 @@ void leave_match(struct Client clients[MAX_CLIENTS],
         games[game_index].active = 0;
         games[game_index].client_indices[0] = -1;
         games[game_index].client_indices[1] = -1;
+        games[game_index].draw_offered_by = -1;
+        games[game_index].paused = 0;
+        games[game_index].paused_by = -1;
     }
 
     if (client->opponent_index == -1)
     {
         client->game_index = -1;
         client->game_player_index = -1;
+        client->ready = 0;
         return;
     }
 
@@ -122,6 +176,7 @@ void leave_match(struct Client clients[MAX_CLIENTS],
     client->opponent_index = -1;
     client->game_index = -1;
     client->game_player_index = -1;
+    client->ready = 0;
 
     if (opponent->fd != -1 && opponent->opponent_index == client_index)
     {
@@ -130,6 +185,7 @@ void leave_match(struct Client clients[MAX_CLIENTS],
         opponent->opponent_index = -1;
         opponent->game_index = -1;
         opponent->game_player_index = -1;
+        opponent->ready = 0;
         snprintf(notification, sizeof(notification),
                  "OPPONENT_LEFT %s", client->username);
         send_line(opponent->fd, notification);
@@ -143,6 +199,7 @@ void remove_client(struct Client clients[MAX_CLIENTS],
     struct Client *client = &clients[client_index];
 
     cancel_all_challenges(clients, client_index);
+    cancel_rematch_requests(clients, client_index);
     leave_match(clients, games, client_index);
     close(client->fd);
     client->fd = -1;
@@ -153,6 +210,8 @@ void remove_client(struct Client clients[MAX_CLIENTS],
     client->opponent_index = -1;
     client->game_index = -1;
     client->game_player_index = -1;
+    client->last_opponent_index = -1;
+    client->rematch_from = -1;
     client->username[0] = '\0';
 
     for (int i = 0; i < MAX_CLIENTS; i++)

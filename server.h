@@ -15,6 +15,9 @@ struct GameSession
 {
     int active;
     int client_indices[PLAYER_COUNT];
+    int draw_offered_by;
+    int paused;
+    int paused_by;
     struct Game game;
 };
 
@@ -30,6 +33,8 @@ struct Client
     int opponent_index;
     int game_index;
     int game_player_index;
+    int last_opponent_index;
+    int rematch_from;
     char username[USERNAME_SIZE];
 };
 
@@ -39,6 +44,8 @@ int find_free_game(const struct GameSession games[MAX_GAMES]);
 int find_free_client(const struct Client clients[MAX_CLIENTS]);
 void cancel_all_challenges(struct Client clients[MAX_CLIENTS],
                            int client_index);
+void cancel_rematch_requests(struct Client clients[MAX_CLIENTS],
+                             int client_index);
 void leave_match(struct Client clients[MAX_CLIENTS],
                  struct GameSession games[MAX_GAMES],
                  int client_index);
@@ -67,6 +74,30 @@ int handle_shoot_command(struct Client clients[MAX_CLIENTS],
                          struct GameSession games[MAX_GAMES],
                          int client_index, const char *message,
                          char response[MESSAGE_SIZE]);
+int handle_resign_command(struct Client clients[MAX_CLIENTS],
+                          struct GameSession games[MAX_GAMES],
+                          int client_index,
+                          char response[MESSAGE_SIZE]);
+int handle_draw_command(struct Client clients[MAX_CLIENTS],
+                        struct GameSession games[MAX_GAMES],
+                        int client_index,
+                        char response[MESSAGE_SIZE]);
+int handle_accept_draw_command(struct Client clients[MAX_CLIENTS],
+                               struct GameSession games[MAX_GAMES],
+                               int client_index,
+                               char response[MESSAGE_SIZE]);
+int handle_decline_draw_command(struct Client clients[MAX_CLIENTS],
+                                struct GameSession games[MAX_GAMES],
+                                int client_index,
+                                char response[MESSAGE_SIZE]);
+int handle_pause_command(struct Client clients[MAX_CLIENTS],
+                         struct GameSession games[MAX_GAMES],
+                         int client_index,
+                         char response[MESSAGE_SIZE]);
+int handle_resume_command(struct Client clients[MAX_CLIENTS],
+                          struct GameSession games[MAX_GAMES],
+                          int client_index,
+                          char response[MESSAGE_SIZE]);
 
 int process_message(struct Client clients[MAX_CLIENTS],
                     struct GameSession games[MAX_GAMES],

@@ -17,12 +17,19 @@ int create_game_session(struct GameSession games[MAX_GAMES],
     games[game_index].active = 1;
     games[game_index].client_indices[0] = first_client;
     games[game_index].client_indices[1] = second_client;
+    games[game_index].draw_offered_by = -1;
+    games[game_index].paused = 0;
+    games[game_index].paused_by = -1;
     initialize_game(&games[game_index].game);
 
     clients[first_client].game_index = game_index;
     clients[first_client].game_player_index = 0;
+    clients[first_client].last_opponent_index = -1;
+    clients[first_client].rematch_from = -1;
     clients[second_client].game_index = game_index;
     clients[second_client].game_player_index = 1;
+    clients[second_client].last_opponent_index = -1;
+    clients[second_client].rematch_from = -1;
 
     return game_index;
 }
@@ -142,6 +149,15 @@ static void finish_game_session(
     struct GameSession games[MAX_GAMES], int game_index)
 {
     struct GameSession *session = &games[game_index];
+    int first_client = session->client_indices[0];
+    int second_client = session->client_indices[1];
+
+    if (first_client >= 0 && first_client < MAX_CLIENTS &&
+        second_client >= 0 && second_client < MAX_CLIENTS)
+    {
+        clients[first_client].last_opponent_index = second_client;
+        clients[second_client].last_opponent_index = first_client;
+    }
 
     for (int i = 0; i < PLAYER_COUNT; i++)
     {
@@ -153,12 +169,306 @@ static void finish_game_session(
             clients[client_index].game_index = -1;
             clients[client_index].game_player_index = -1;
             clients[client_index].ready = 0;
+            clients[client_index].rematch_from = -1;
         }
     }
 
     session->active = 0;
     session->client_indices[0] = -1;
     session->client_indices[1] = -1;
+    session->draw_offered_by = -1;
+    session->paused = 0;
+    session->paused_by = -1;
+}
+
+int handle_resign_command(struct Client clients[MAX_CLIENTS],
+                          struct GameSession games[MAX_GAMES],
+                          int client_index,
+                          char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    int game_index = client->game_index;
+    struct GameSession *session = &games[game_index];
+    int opponent_player = 1 - client->game_player_index;
+    int opponent_index = session->client_indices[opponent_player];
+
+    int send_failed =
+        send_line(client->fd, "GAME_RESULT LOSE") == -1;
+
+    if (opponent_index >= 0 &&
+        opponent_index < MAX_CLIENTS &&
+        clients[opponent_index].fd != -1)
+    {
+        snprintf(response, MESSAGE_SIZE,
+                 "OPPONENT_RESIGNED %s", client->username);
+        send_line(clients[opponent_index].fd, response);
+        send_line(clients[opponent_index].fd,
+                  "GAME_RESULT WIN");
+    }
+
+    finish_game_session(clients, games, game_index);
+    return send_failed ? -1 : 1;
+}
+
+int handle_draw_command(struct Client clients[MAX_CLIENTS],
+                        struct GameSession games[MAX_GAMES],
+                        int client_index,
+                        char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    struct GameSession *session = &games[client->game_index];
+
+    if (session->draw_offered_by == client->game_player_index)
+    {
+        strcpy(response, "ERROR Draw offer already sent");
+        return 0;
+    }
+
+    if (session->draw_offered_by != -1)
+    {
+        strcpy(response, "ERROR Opponent offered a draw; use ACCEPT_DRAW or DECLINE_DRAW");
+        return 0;
+    }
+
+    int opponent_player = 1 - client->game_player_index;
+    int opponent_index = session->client_indices[opponent_player];
+    session->draw_offered_by = client->game_player_index;
+
+    if (send_line(client->fd, "DRAW_OFFER_SENT") == -1)
+    {
+        session->draw_offered_by = -1;
+        return -1;
+    }
+
+    snprintf(response, MESSAGE_SIZE,
+             "DRAW_OFFER %s", client->username);
+    send_line(clients[opponent_index].fd, response);
+    return 1;
+}
+
+int handle_accept_draw_command(struct Client clients[MAX_CLIENTS],
+                               struct GameSession games[MAX_GAMES],
+                               int client_index,
+                               char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    int game_index = client->game_index;
+    struct GameSession *session = &games[game_index];
+
+    if (session->draw_offered_by == -1 ||
+        session->draw_offered_by == client->game_player_index)
+    {
+        strcpy(response, "ERROR No draw offer from opponent");
+        return 0;
+    }
+
+    int opponent_index =
+        session->client_indices[session->draw_offered_by];
+    int send_failed =
+        send_line(client->fd, "DRAW_ACCEPTED") == -1;
+
+    snprintf(response, MESSAGE_SIZE,
+             "DRAW_ACCEPTED %s", client->username);
+    send_line(clients[opponent_index].fd, response);
+    send_line(client->fd, "GAME_RESULT DRAW");
+    send_line(clients[opponent_index].fd, "GAME_RESULT DRAW");
+
+    finish_game_session(clients, games, game_index);
+    return send_failed ? -1 : 1;
+}
+
+int handle_decline_draw_command(struct Client clients[MAX_CLIENTS],
+                                struct GameSession games[MAX_GAMES],
+                                int client_index,
+                                char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    struct GameSession *session = &games[client->game_index];
+
+    if (session->draw_offered_by == -1 ||
+        session->draw_offered_by == client->game_player_index)
+    {
+        strcpy(response, "ERROR No draw offer from opponent");
+        return 0;
+    }
+
+    int opponent_index =
+        session->client_indices[session->draw_offered_by];
+    session->draw_offered_by = -1;
+
+    if (send_line(client->fd, "DRAW_DECLINED") == -1)
+    {
+        return -1;
+    }
+
+    snprintf(response, MESSAGE_SIZE,
+             "DRAW_DECLINED %s", client->username);
+    send_line(clients[opponent_index].fd, response);
+    return 1;
+}
+
+int handle_pause_command(struct Client clients[MAX_CLIENTS],
+                         struct GameSession games[MAX_GAMES],
+                         int client_index,
+                         char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    struct GameSession *session = &games[client->game_index];
+
+    if (session->paused)
+    {
+        strcpy(response, "ERROR Game is already paused");
+        return 0;
+    }
+
+    if (session->draw_offered_by != -1)
+    {
+        strcpy(response, "ERROR Resolve the draw offer first");
+        return 0;
+    }
+
+    int opponent_player = 1 - client->game_player_index;
+    int opponent_index = session->client_indices[opponent_player];
+    session->paused = 1;
+    session->paused_by = client->game_player_index;
+
+    if (send_line(client->fd, "PAUSE_OK") == -1)
+    {
+        session->paused = 0;
+        session->paused_by = -1;
+        return -1;
+    }
+
+    snprintf(response, MESSAGE_SIZE,
+             "GAME_PAUSED %s", client->username);
+    send_line(clients[opponent_index].fd, response);
+    return 1;
+}
+
+int handle_resume_command(struct Client clients[MAX_CLIENTS],
+                          struct GameSession games[MAX_GAMES],
+                          int client_index,
+                          char response[MESSAGE_SIZE])
+{
+    struct Client *client = &clients[client_index];
+
+    if (!client->logged_in)
+    {
+        strcpy(response, "ERROR Login required");
+        return 0;
+    }
+
+    if (client->game_index < 0 ||
+        client->game_index >= MAX_GAMES ||
+        !games[client->game_index].active)
+    {
+        strcpy(response, "ERROR Not in a match");
+        return 0;
+    }
+
+    struct GameSession *session = &games[client->game_index];
+
+    if (!session->paused)
+    {
+        strcpy(response, "ERROR Game is not paused");
+        return 0;
+    }
+
+    if (session->paused_by != client->game_player_index)
+    {
+        strcpy(response, "ERROR Only the player who paused can resume");
+        return 0;
+    }
+
+    int opponent_player = 1 - client->game_player_index;
+    int opponent_index = session->client_indices[opponent_player];
+    session->paused = 0;
+    session->paused_by = -1;
+
+    if (send_line(client->fd, "RESUME_OK") == -1)
+    {
+        return -1;
+    }
+
+    snprintf(response, MESSAGE_SIZE,
+             "GAME_RESUMED %s", client->username);
+    send_line(clients[opponent_index].fd, response);
+    return 1;
 }
 
 int handle_place_command(struct Client clients[MAX_CLIENTS],
@@ -190,6 +500,20 @@ int handle_place_command(struct Client clients[MAX_CLIENTS],
         return 0;
     }
 
+    struct GameSession *session = &games[client->game_index];
+
+    if (session->paused)
+    {
+        strcpy(response, "ERROR Game is paused");
+        return 0;
+    }
+
+    if (session->draw_offered_by != -1)
+    {
+        strcpy(response, "ERROR Draw offer is pending");
+        return 0;
+    }
+
     if (fields != 4)
     {
         strcpy(response,
@@ -214,7 +538,6 @@ int handle_place_command(struct Client clients[MAX_CLIENTS],
         return 0;
     }
 
-    struct GameSession *session = &games[client->game_index];
     struct Player *player =
         &session->game.players[client->game_player_index];
     struct Ship *ship = &player->fleet[ship_number - 1];
@@ -295,6 +618,20 @@ int handle_shoot_command(struct Client clients[MAX_CLIENTS],
         return 0;
     }
 
+    struct GameSession *session = &games[client->game_index];
+
+    if (session->paused)
+    {
+        strcpy(response, "ERROR Game is paused");
+        return 0;
+    }
+
+    if (session->draw_offered_by != -1)
+    {
+        strcpy(response, "ERROR Draw offer is pending");
+        return 0;
+    }
+
     if (fields != 2)
     {
         strcpy(response, "ERROR Use: SHOOT <A1-J10>");
@@ -309,8 +646,6 @@ int handle_shoot_command(struct Client clients[MAX_CLIENTS],
         strcpy(response, "ERROR Invalid coordinate");
         return 0;
     }
-
-    struct GameSession *session = &games[client->game_index];
 
     if (!game_is_ready(&session->game))
     {

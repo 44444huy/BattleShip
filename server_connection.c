@@ -134,6 +134,8 @@ void accept_new_client(int listen_fd,
     clients[client_index].opponent_index = -1;
     clients[client_index].game_index = -1;
     clients[client_index].game_player_index = -1;
+    clients[client_index].last_opponent_index = -1;
+    clients[client_index].rematch_from = -1;
     clients[client_index].username[0] = '\0';
 
     for (int i = 0; i < MAX_CLIENTS; i++)

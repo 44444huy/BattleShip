@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
     printf("  REGISTER <username> <password>\n");
     printf("  LOGIN <username> <password>\n");
     printf("  LOGOUT\n");
-    printf("  READY, UNREADY, LIST_READY\n");
+    printf("  READY, UNREADY, LIST_READY, LIST_ONLINE\n");
     printf("  CHALLENGE <username>\n");
     printf("  LIST_CHALLENGES\n");
     printf("  ACCEPT <username>, DECLINE <username>\n");
@@ -93,6 +93,9 @@ int main(int argc, char *argv[])
     printf("  SHOW_BOARD\n");
     printf("  SHOOT <A1-J10>\n");
     printf("  SHOW_OPPONENT\n");
+    printf("  PAUSE, RESUME, RESIGN\n");
+    printf("  DRAW, ACCEPT_DRAW, DECLINE_DRAW\n");
+    printf("  REMATCH, ACCEPT_REMATCH, DECLINE_REMATCH\n");
     printf("  HELLO, PING, QUIT\n");
 
     char message[MESSAGE_SIZE];
