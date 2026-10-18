@@ -625,9 +625,13 @@ int process_message(struct Client clients[MAX_CLIENTS],
             {
                 struct Client *target = &clients[target_index];
 
-                if (!target->ready || target->opponent_index != -1)
+                if (!target->ready)
                 {
-                    strcpy(response, "ERROR Player is not available");
+                    strcpy(response, "ERROR Player is not ready");
+                }
+                else if(target->opponent_index != -1)
+                {
+                    strcpy(response, "ERROR Player is already in a match");
                 }
                 else if (target->challenges_from[client_index])
                 {
@@ -742,7 +746,7 @@ int process_message(struct Client clients[MAX_CLIENTS],
                                         challenger_index);
                             strcpy(response,
                                    "ERROR Could not start match");
-                        }
+                        }   
                         else
                         {
                             snprintf(notification,
