@@ -88,14 +88,19 @@ int main(int argc, char *argv[])
     printf("  READY, UNREADY, LIST_READY, LIST_ONLINE\n");
     printf("  CHALLENGE <username>\n");
     printf("  LIST_CHALLENGES\n");
-    printf("  ACCEPT <username>, DECLINE <username>\n");
-    printf("  PLACE <ship 1-5> <A1-J10> <H|V>\n");
+    printf("  ACCEPT_CHALLENGE <username>, DECLINE_CHALLENGE <username>\n");
+    printf("  PLACE_FLEET <id cell H|V> repeated for all five ships\n");
+    printf("    Example: PLACE_FLEET 1 A1 H 2 C1 H 3 E1 H 4 G1 H 5 I1 H\n");
     printf("  SHOW_BOARD\n");
     printf("  SHOOT <A1-J10>\n");
     printf("  SHOW_OPPONENT\n");
     printf("  PAUSE, RESUME, RESIGN\n");
     printf("  DRAW, ACCEPT_DRAW, DECLINE_DRAW\n");
     printf("  REMATCH, ACCEPT_REMATCH, DECLINE_REMATCH\n");
+    printf("  STATS, HISTORY <offset>, LEADERBOARD <offset>\n");
+    printf("  REPLAY <match_id> [after_sequence]\n");
+    printf("READY queues for ranked play; challenges and rematches are unranked.\n");
+    printf("Placement: 120 seconds (automatic fleet on expiry); turns: 30 seconds.\n");
     printf("  HELLO, PING, QUIT\n");
 
     char message[MESSAGE_SIZE];

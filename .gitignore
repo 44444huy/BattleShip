@@ -4,6 +4,11 @@
 /client
 /test_game
 /test_account
+/test_server
+/battleship.db
+/battleship.db-*
+/battleship.db.lock
+__pycache__/
 
 # Runtime and test data
 /accounts.txt

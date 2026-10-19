@@ -1,37 +1,13 @@
 #ifndef ACCOUNT_H
 #define ACCOUNT_H
-
-#define MAX_ACCOUNTS 100
+#include <sqlite3.h>
 #define USERNAME_SIZE 32
 #define PASSWORD_SIZE 64
-
-#define REGISTER_ACCOUNT_OK 1
-#define REGISTER_ACCOUNT_EXISTS 0
-#define REGISTER_ACCOUNT_FULL -1
-#define REGISTER_ACCOUNT_FILE_ERROR -2
-
-struct Account
-{
-    char username[USERNAME_SIZE];
-    char password[PASSWORD_SIZE];
-};
-
-struct AccountStore
-{
-    struct Account accounts[MAX_ACCOUNTS];
-    int count;
-};
-
-void initialize_account_store(struct AccountStore *store);
-int load_accounts(struct AccountStore *store, const char *file_name);
-int register_account(struct AccountStore *store,
-                     const char *file_name,
-                     const char *username,
-                     const char *password);
-int authenticate_account(const struct AccountStore *store,
-                         const char *username,
-                         const char *password);
-int valid_username(const char *username);
-int valid_password(const char *password);
-
+struct Account { sqlite3_int64 id; char username[USERNAME_SIZE]; int rating; };
+int valid_username(const char *text);
+int valid_password(const char *text);
+/* 1 success, 0 duplicate/invalid credentials, -1 storage/crypto failure. */
+int register_account(sqlite3 *db, const char *username, const char *password);
+int authenticate_account(sqlite3 *db, const char *username, const char *password,
+                         struct Account *account);
 #endif
